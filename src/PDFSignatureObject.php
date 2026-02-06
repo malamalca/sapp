@@ -32,27 +32,37 @@ use ddn\sapp\pdfvalue\PDFValueString;
 use ddn\sapp\pdfvalue\PDFValueType;
 use function ddn\sapp\helpers\timestamp_to_pdfdatestring;
 
-// The maximum signature length, needed to create a placeholder to calculate the range of bytes
-// that will cover the signature.
-if (!defined('__SIGNATURE_MAX_LENGTH'))
-    define('__SIGNATURE_MAX_LENGTH', 11742);
-
-// The maximum expected length of the byte range, used to create a placeholder while the size
-// is not known. 68 digits enable 20 digits for the size of the document
-if (!defined('__BYTERANGE_SIZE'))
-    define('__BYTERANGE_SIZE', 68);
-
 // This is an special object that has a set of fields
 class PDFSignatureObject extends PDFObject {
+    // The maximum signature length, needed to create a placeholder to calculate the range of bytes
+    // that will cover the signature.
+    public static $__SIGNATURE_MAX_LENGTH = 27742;
+
+    // The maximum expected length of the byte range, used to create a placeholder while the size
+    // is not known. 68 digits enable 20 digits for the size of the document
+    public static $__BYTERANGE_SIZE = 68;
+
+    protected $_prev_content_size = 0;
+    protected $_post_content_size = null;
+
     // A placeholder for the certificate to use to sign the document
     protected $_certificate = null;
+    protected $_signature_ltv_data = null;
+    protected $_signature_tsa = null;
+
     /**
      * Sets the certificate to use to sign
-     * @param cert the pem-formatted certificate and private to use to sign as 
+     * @param cert the pem-formatted certificate and private to use to sign as
      *             [ 'cert' => ..., 'pkey' => ... ]
      */
     public function set_certificate($certificate) {
         $this->_certificate = $certificate;
+    }
+    public function set_signature_ltv($signature_ltv_data) {
+        $this->_signature_ltv_data = $signature_ltv_data;
+    }
+    public function set_signature_tsa($signature_tsa) {
+        $this->_signature_tsa = $signature_tsa;
     }
     /**
      * Obtains the certificate set with function set_certificate
@@ -60,6 +70,12 @@ class PDFSignatureObject extends PDFObject {
      */
     public function get_certificate() {
         return $this->_certificate;
+    }
+    public function get_tsa() {
+        return $this->_signature_tsa;
+    }
+    public function get_ltv() {
+        return $this->_signature_ltv_data;
     }
     /**
      * Constructs the object and sets the default values needed to sign
@@ -72,8 +88,8 @@ class PDFSignatureObject extends PDFObject {
             'Filter' => "/Adobe.PPKLite",
             'Type' => "/Sig",
             'SubFilter' => "/adbe.pkcs7.detached",
-            'ByteRange' => new PDFValueSimple(str_repeat(" ", __BYTERANGE_SIZE)),
-            'Contents' => "<" . str_repeat("0", __SIGNATURE_MAX_LENGTH) . ">",
+            'ByteRange' => new PDFValueSimple(str_repeat(" ", self::$__BYTERANGE_SIZE)),
+            'Contents' => "<" . str_repeat("0", self::$__SIGNATURE_MAX_LENGTH) . ">",
             'M' => new PDFValueString(timestamp_to_pdfdatestring()),
         ]);
     }
@@ -85,10 +101,18 @@ class PDFSignatureObject extends PDFObject {
      * @param contact the contact info
      */
     public function set_metadata($name = null, $reason = null, $location = null, $contact = null) {
-        $this->_value["Name"] = $name;
-        $this->_value["Reason"] = $reason;
-        $this->_value["Location"] = $location;
-        $this->_value["ContactInfo"] = $contact;
+        if ($name !== null) {
+            $this->_value["Name"] = new PDFValueHexString($name);
+        }
+        if ($reason !== null) {
+            $this->_value["Reason"] = new PDFValueHexString($reason);
+        }
+        if ($location !== null) {
+            $this->_value["Location"] = new PDFValueHexString($location);
+        }
+        if ($contact !== null) {
+            $this->_value["ContactInfo"] = new PDFValueHexString($contact);
+        }
     }
     /**
      * Function that sets the size of the content that will appear in the file, previous to this object,
@@ -118,17 +142,17 @@ class PDFSignatureObject extends PDFObject {
     public function to_pdf_entry() {
         $signature_size = strlen(parent::to_pdf_entry());
         $offset = $this->get_signature_marker_offset();
-        $starting_second_part = $this->_prev_content_size + $offset + __SIGNATURE_MAX_LENGTH + 2;
+        $starting_second_part = $this->_prev_content_size + $offset + self::$__SIGNATURE_MAX_LENGTH + 2;
 
         $contents_size = strlen("" . $this->_value['Contents']);
 
-        $byterange_str =  "[ 0 " . 
+        $byterange_str =  "[ 0 " .
             ($this->_prev_content_size + $offset) . " " .
             ($starting_second_part) . " " .
             ($this->_document_size===null?0:$this->_document_size - $starting_second_part) . " ]";
 
-        $this->_value['ByteRange'] = 
-            new PDFValueSimple($byterange_str . str_repeat(" ", __BYTERANGE_SIZE - strlen($byterange_str) + 1)
+        $this->_value['ByteRange'] =
+            new PDFValueSimple($byterange_str . str_repeat(" ", self::$__BYTERANGE_SIZE - strlen($byterange_str) + 1)
         );
 
         return parent::to_pdf_entry();

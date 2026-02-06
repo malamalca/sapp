@@ -46,10 +46,14 @@ if (!defined('__EOL'))
  *   ease the generation of the PDF entries for an individual object.
  */
 class PDFObject implements ArrayAccess {
+    protected static $_revisions;
+    protected static $_xref_table_version;
+
     protected $_oid = null;
     protected $_stream = null;
     protected $_value = null;
-    
+    protected $_generation;
+
     public function __construct($oid, $value = null, $generation = 0) {
         if ($generation !== 0)
             p_warning("Objects of non-zero generation are not fully checked... please double check your document and (if possible) please send examples via issues to https://github.com/dealfonso/sapp/issues/");

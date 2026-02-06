@@ -25,9 +25,11 @@ use ddn\sapp\PDFObjectParser;
 use ddn\sapp\helpers\StreamReader;
 use ddn\sapp\helpers\Buffer;
 
+use ddn\sapp\pdfvalue\PDFValueSimple;
 use function ddn\sapp\helpers\p_debug;
 use function ddn\sapp\helpers\p_debug_var;
 use function ddn\sapp\helpers\p_error;
+use function ddn\sapp\helpers\p_warning;
 use function ddn\sapp\helpers\show_bytes;
 
 use ddn\sapp\helpers\LoadHelpers;
@@ -40,17 +42,23 @@ class PDFUtilFnc {
 
     public static function get_trailer(&$_buffer, $trailer_pos) {
         // Search for the trailer structure
-        if (preg_match('/trailer\s*(.*)\s*startxref/ms', $_buffer, $matches, 0, $trailer_pos) !== 1)
+        if (preg_match('/trailer\s+(.*)\s+startxref/ms', $_buffer, $matches, 0, $trailer_pos) !== 1)
             return p_error("trailer not found");
         
         $trailer_str = $matches[1];
+        // we'll cut when finding "startxref", because maybe there are other "trailer" words in the document
+        $startxref_pos = strpos($trailer_str, "startxref");
+        if ($startxref_pos !== false) {
+            $trailer_str = substr($trailer_str, 0, $startxref_pos);
+        }
+        $trailer_str .= "\nendobj";  // to make sure that the parser understands where the object ends
 
         // We create the object to parse (this is not innefficient, because it is disposed when returning from the function)
         //   and parse the trailer content.
         $parser = new PDFObjectParser();
         try {
             $trailer_obj = $parser->parsestr($trailer_str);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             return p_error("trailer is not valid");
         }
 
@@ -102,8 +110,6 @@ class PDFUtilFnc {
         array_push($indexes, "$i_k $count");
         $indexes = implode(" ", $indexes);
 
-        // p_debug(show_bytes($result, 6));
-
         return [
             "W" => [ 1, 4, 1 ],
             "Index" => $indexes,
@@ -123,7 +129,7 @@ class PDFUtilFnc {
             $depth = $depth - 1;
         }
 
-        $xref_o = PDFUtilFnc::find_object_at_pos($_buffer, null, $xref_pos, []);
+        $xref_o = PDFUtilFnc::find_object_at_pos($_buffer, null, $xref_pos);
         if ($xref_o === false)
             return p_error("cross reference object not found when parsing xref at position $xref_pos", [false, false, false]);
 
@@ -445,7 +451,7 @@ class PDFUtilFnc {
         ];
     }
 
-    /**
+     /**
      * Signs a file using the certificate and key and obtains the signature content padded to the max signature length
      * @param filename the name of the file to sign
      * @param certificate the public key to sign
@@ -484,7 +490,7 @@ class PDFUtilFnc {
 
         return $signature;
     }   
-    
+
     /**
      * Function that finds a the object at the specific position in the buffer
      * @param buffer the buffer from which to read the document
@@ -553,7 +559,7 @@ class PDFUtilFnc {
         $object_offset = $xref_table[$oid];
 
         if (!is_array($object_offset))
-            return PDFUtilFnc::find_object_at_pos($_buffer, $oid, $object_offset, $xref_table);
+            return PDFUtilFnc::object_from_string($_buffer, $oid, $object_offset, $xref_table);
         else {
             $object = PDFUtilFnc::find_object_in_objstm($_buffer, $xref_table, $object_offset["stmoid"], $object_offset["pos"], $oid);
             return $object;
@@ -587,7 +593,7 @@ class PDFUtilFnc {
 
         $stream = $objstm->get_stream(false);
         $index = substr($stream, 0, $First);
-        $index = explode(" ", trim($index));
+        $index = preg_split('/\s+/', trim($index));
         $stream = substr($stream, $First);
 
         if (count($index) % 2 !== 0)
@@ -617,15 +623,16 @@ class PDFUtilFnc {
     /**
      * Function that parses an object 
      */
-    public static function object_from_string(&$buffer, $expected_obj_id, $offset = 0, &$offset_end = 0) {
-        if (preg_match('/([0-9]+)\s+([0-9+])\s+obj(\s+)/ms', $buffer, $matches, 0, $offset) !== 1) {
+    public static function object_from_string(string &$buffer, $expected_obj_id, $offset = 0, $xref_table = []) {
+        if (preg_match('/([0-9]+)\s+([0-9]+)\s+obj\b/ms', $buffer, $matches, PREG_OFFSET_CAPTURE, $offset) !== 1) {
             // p_debug_var(substr($buffer))
             return p_error("object is not valid: $expected_obj_id");
         }
 
-        $found_obj_header = $matches[0];
-        $found_obj_id = intval($matches[1]);
-        $found_obj_generation = intval($matches[2]);
+        $found_obj_header = $matches[0][0];
+        $match_position = $matches[0][1];
+        $found_obj_id = intval($matches[1][0]);
+        $found_obj_generation = intval($matches[2][0]);
 
         if ($expected_obj_id === null)
             $expected_obj_id = $found_obj_id;
@@ -635,7 +642,7 @@ class PDFUtilFnc {
         }
 
         // The object starts after the header
-        $offset = $offset + strlen($found_obj_header);
+        $offset = $match_position + strlen($found_obj_header);
 
         // Parse the object
         $parser = new PDFObjectParser();
@@ -650,15 +657,48 @@ class PDFUtilFnc {
             case PDFObjectParser::T_OBJECT_END:
                 // The object has ended correctly
                 break;
-            case PDFObjectParser::T_STREAM_BEGIN:
-                // There is an stream
-                break;
             default:
                 return p_error("malformed object");
         }
 
-        $offset_end = $stream->getpos();
-        return new PDFObject($found_obj_id, $obj_parsed, $found_obj_generation);
+        $object = new PDFObject($found_obj_id, $obj_parsed, $found_obj_generation);
+        if (($obj_parsed["__stream__"]??null) !== null) {
+            // Let's check if the length matches the stream length
+
+            if (($object['Length']??false) === false) {
+                p_warning("object $found_obj_id has a stream but no length; assuming length " . strlen($obj_parsed["__stream__"]));
+                $object['Length'] = new PDFValueSimple(strlen($obj_parsed["__stream__"]->val()));
+            }
+
+            $length = $object['Length']->get_int();
+            if ($length === false) {
+                $length_object_id = $object['Length']->get_object_referenced();
+                if ($length_object_id === false) {
+                    return p_error("could not get stream for object $found_obj_id");
+                }
+                $length_object = PDFUtilFnc::find_object($buffer, $xref_table, $length_object_id);
+                if ($length_object === false)
+                    return p_error("could not get object $found_obj_id");
+
+                $length = $length_object->get_value()->get_int();
+            }
+
+            if ($length === false) {
+                return p_error("could not get stream length for object $found_obj_id");
+            }
+
+            // Check that the length matches
+            $stream_length = strlen($obj_parsed["__stream__"]->val());
+            if ($length <= $stream_length) {
+                $object->set_stream(substr($obj_parsed["__stream__"]->val(), 0, $length), true);
+            } else if ($length > $stream_length) {
+                p_warning("object $found_obj_id has a stream of length " . $stream_length . " but length property is $length; assuming length " . $stream_length);
+                $object['Length'] = new PDFValueSimple($stream_length);
+                $object->set_stream($obj_parsed["__stream__"]->val(), true);
+            }
+            unset($obj_parsed["__stream__"]);
+        }
+        return $object;
     }
 
     /**
@@ -681,7 +721,7 @@ class PDFUtilFnc {
             if ($k[$i] === $c_k + 1) {
                 $count++;
             } else {
-                $result = $result . "$i_k ${count}\n$references";
+                $result = $result . "$i_k {$count}\n$references";
                 $count = 1;
                 $i_k = $k[$i];
                 $references = "";
@@ -689,7 +729,7 @@ class PDFUtilFnc {
             $references .= sprintf("%010d 00000 n \n", $offsets[$k[$i]]);
             $c_k = $k[$i];
         }
-        $result = $result . "$i_k ${count}\n$references";
+        $result = $result . "$i_k {$count}\n$references";
 
         return "xref\n$result";            
     }    
