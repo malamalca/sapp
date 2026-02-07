@@ -48,38 +48,29 @@ file_put_contents('signed.pdf', $signed_pdf);
 
 ## All Methods
 
-### High-Level (Files)
+### File-Based
 ```php
-// Get hash from file
+// Phase 1: Get hash from file
 prepareFileForSigning($filename, $algorithm='sha256')
 
-// Sign file with client signature
+// Phase 2: Sign file with client signature
+// $cert_file accepts a file path or PEM string
 signFile($filename, $sig_hex, $cert_file, $aa_hex, $algorithm='sha256')
 ```
 
-### High-Level (Content)
+### Content-Based
 ```php
-// Get hash from content
+// Phase 1: Get hash from content
 prepareHashForSigning($pdf_content, $algorithm='sha256')
 
-// Sign content with client signature
+// Phase 2: Sign content with client signature
 embedClientSignature($pdf_content, $sig_hex, $cert_pem, $aa_hex, $algorithm='sha256')
 ```
 
-### Low-Level
-```php
-// Extract byte ranges from PDF
-extractSigningData($pdf_content)
-
-// Build authenticated attributes
-buildAuthenticatedAttributes($doc_hash, $signing_time=null)
-
-// Build CMS/PKCS#7 signature
-buildCMSSignature($sig_hex, $cert_pem, $aa_hex, $algorithm='sha256')
-
-// Embed signature in PDF
-embedSignatureInPDF($pdf_content, $signature_hex)
-```
+> **Note:** CMS/PKCS#7 structure building and authenticated attributes
+> construction are delegated to shared `CMS` class static methods
+> (`CMS::buildAuthenticatedAttributes`, `CMS::buildSignerInfo`,
+> `CMS::buildPKCS7SignedData`).
 
 ## Complete Example
 
@@ -132,9 +123,10 @@ if ($signed_pdf === false) {
 2. **Don't recalculate** authenticated attributes - signature will be invalid
 3. **Hash to sign** is `hashToSign` not `documentHash`
 4. **Signature format** must be hex string (512 chars for RSA-2048)
-5. **Certificate format** must be PEM
+5. **Certificate format** must be PEM (file path or PEM string)
 
 ## See Also
 
 - Full documentation: `CLIENT_SIDE_SIGNING_LIBRARY.md`
+- CMS shared methods: `src/helpers/CMS.php`
 - End-to-end test: `test_complete_signing.php`

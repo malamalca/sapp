@@ -41,7 +41,9 @@ php test_complete_signing.php
 The `ClientSideSigning` class is located at:
 - `src/helpers/ClientSideSigning.php`
 
-It provides all functionality for two-phase PDF signing where the private key remains on the client side.
+It provides 4 public methods for two-phase PDF signing where the private key
+remains on the client side. CMS/PKCS#7 structure building is delegated to
+shared static methods on the `CMS` class (`src/helpers/CMS.php`).
 
 ## Migration Note
 

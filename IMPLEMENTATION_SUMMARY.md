@@ -14,7 +14,7 @@
 
 - **Our need**: Client-side signing where private key is NOT on server
   - Different use case from CMS class
-  - No overlap in functionality
+  - Shares CMS structure building via `CMS` static methods (no code duplication)
 
 ### 2. Created New Library Class: `ClientSideSigning`
 
@@ -32,14 +32,14 @@
 
 | Method | Purpose |
 |--------|---------|
-| `prepareFileForSigning()` | Get hash from PDF file |
-| `prepareHashForSigning()` | Get hash from PDF content |
-| `signFile()` | Complete signing with file |
-| `embedClientSignature()` | Complete signing with content |
-| `extractSigningData()` | Low-level: Extract byte ranges |
-| `buildAuthenticatedAttributes()` | Low-level: Build AA structure |
-| `buildCMSSignature()` | Low-level: Build CMS/PKCS#7 |
-| `embedSignatureInPDF()` | Low-level: Embed signature |
+| `prepareFileForSigning()` | Phase 1: Get hash from PDF file |
+| `prepareHashForSigning()` | Phase 1: Get hash from PDF content |
+| `signFile()` | Phase 2: Complete signing with file |
+| `embedClientSignature()` | Phase 2: Complete signing with content |
+
+> CMS/PKCS#7 structure building is delegated to shared static methods
+> on the `CMS` class (`buildAuthenticatedAttributes`, `buildSignerInfo`,
+> `buildPKCS7SignedData`), eliminating code duplication.
 
 ### 3. Refactored Command-Line Interface
 
@@ -70,8 +70,8 @@
 sapp/
 ├── src/
 │   └── helpers/
-│       ├── ClientSideSigning.php  [NEW] - Client-side signing library
-│       ├── CMS.php                [EXISTING] - Server-side signing  
+│       ├── ClientSideSigning.php  [NEW] - Client-side signing (delegates to CMS)
+│       ├── CMS.php                [REFACTORED] - Shared CMS methods + server-side signing  
 │       ├── asn1.php               [USED] - ASN.1 encoding
 │       ├── x509.php               [USED] - Certificate handling
 │       └── LoadHelpers.php        [AUTO-LOADS] - All helpers
@@ -118,6 +118,7 @@ The signed PDF validates correctly in Adobe Reader.
 | TSA Support | Yes | No |
 | LTV Support | Yes | No |
 | Use Case | Traditional | Modern/Browser-based |
+| CMS Building | Own `pkcs7_sign()` method | Delegates to `CMS` static methods |
 
 ## Benefits
 

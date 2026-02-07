@@ -41,7 +41,19 @@ Phase 2 (Client): Receive hash → Sign with private key → Return signature
 Phase 3 (Server): Receive signature → Embed in PDF → Output signed PDF
 ```
 
-## Key Differences from CMS Class
+## Relationship with CMS Class
+
+`ClientSideSigning` delegates all CMS/PKCS#7 structure building to shared
+static methods on the `CMS` class, avoiding code duplication:
+
+| CMS Static Method | Used By |
+|---|---|
+| `CMS::getHashAlgorithmOids()` | Both CMS and ClientSideSigning |
+| `CMS::buildAuthenticatedAttributes()` | Both CMS and ClientSideSigning |
+| `CMS::buildSignerInfo()` | Both CMS and ClientSideSigning |
+| `CMS::buildPKCS7SignedData()` | Both CMS and ClientSideSigning |
+
+### Key Differences
 
 | Feature | CMS Class | ClientSideSigning Class |
 |---------|-----------|------------------------|
@@ -163,7 +175,7 @@ Complete the signing process by embedding client's signature.
 **Parameters:**
 - `$filename` (string) - Path to PDF with placeholder
 - `$signature_hex` (string) - Signature from client (hex)
-- `$cert_file` (string) - Path to certificate file (PEM)
+- `$cert_file` (string) - Path to certificate file (PEM) or PEM string
 - `$authenticated_attrs_hex` (string) - From Phase 1
 - `$hash_algorithm` (string) - Hash algorithm (default: 'sha256')
 
@@ -182,23 +194,22 @@ Same as above but works with content instead of files.
 
 **Returns:** Signed PDF content (string) or false
 
-### Low-Level Methods
+### CMS Class Shared Methods (used internally)
 
-#### `extractSigningData($pdf_content)`
+The following `CMS` static methods are used by `ClientSideSigning` internally
+and are also available for advanced use cases:
 
-Extract byte ranges and signing data from PDF.
+#### `CMS::getHashAlgorithmOids()`
+Returns array mapping hash algorithm names to ASN.1 OID hex strings.
 
-#### `buildAuthenticatedAttributes($document_hash, $signing_time = null)`
+#### `CMS::buildAuthenticatedAttributes($messageDigest, $signingTime = null, $appendLTV = '')`
+Builds authenticated attributes ASN.1 structure.
 
-Build authenticated attributes for PDF signature.
+#### `CMS::buildSignerInfo($issuerName, $serialNumber, $hexOidHashAlgo, $authenticatedAttributes, $hexEncryptedDigest, $unsignedAttrs = '')`
+Builds the SignerInfo ASN.1 SEQUENCE.
 
-#### `buildCMSSignature($signed_hash, $cert_pem, $authenticated_attrs_hex, $hash_algorithm = 'sha256')`
-
-Build CMS/PKCS#7 signature structure.
-
-#### `embedSignatureInPDF($pdf_content, $signature_hex)`
-
-Embed signature into PDF placeholder.
+#### `CMS::buildPKCS7SignedData($hexOidHashAlgo, $hexCerts, $signerInfos)`
+Builds the complete PKCS#7/CMS ContentInfo structure.
 
 ## Important Notes
 
