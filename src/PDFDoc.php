@@ -998,14 +998,14 @@ class PDFDoc extends Buffer {
             $_signable_document = new Buffer($pdf_heading->get_raw() . $this->_generate_PDF_content($rebuild)->get_raw() . $pdf_trailer->get_raw());
 
             // We need to write the content to a temporary folder to use the pkcs7 signature mechanism
-            $temp_filename = tempnam(__TMP_FOLDER, 'pdfsign');
+            $temp_filename = tempnam(sys_get_temp_dir(), 'pdfsign');
             $temp_file = fopen($temp_filename, 'wb');
             fwrite($temp_file, $_signable_document->get_raw());
             fclose($temp_file);
 
             // Calculate the signature and remove the temporary file
             $certificate = $_signature->get_certificate();
-            $signature_contents = PDFUtilFnc::calculate_pkcs7_signature($temp_filename, $certificate['cert'], $certificate['pkey'], __TMP_FOLDER);
+            $signature_contents = PDFUtilFnc::calculate_pkcs7_signature($temp_filename, $certificate['cert'], $certificate['pkey'], sys_get_temp_dir());
             unlink($temp_filename);
 
             $extracerts = (array_key_exists('extracerts', $certificate)) ? $certificate['extracerts'] : null;
