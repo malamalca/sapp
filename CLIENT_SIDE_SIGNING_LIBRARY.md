@@ -6,26 +6,6 @@ The `ClientSideSigning` library provides server-side support for client-side PDF
 
 > **Note:** The command-line interface (`clientpdfsign.php`) has been deprecated. Use the library methods directly as shown in the examples below.
 
-## Migration from CLI
-
-If you were using the command-line interface:
-
-```bash
-# OLD: Command-line approach
-php clientpdfsign.php gethash prepared.pdf > hash.json
-php clientpdfsign.php embedsig prepared.pdf $sig cert.pem $aa > signed.pdf
-```
-
-Replace with library calls:
-
-```php
-// NEW: Library approach
-$hash_data = ClientSideSigning::prepareFileForSigning('prepared.pdf');
-$signed_pdf = ClientSideSigning::signFile(
-    'prepared.pdf', $sig_hex, 'cert.pem', $hash_data['authenticatedAttributes']
-);
-```
-
 ## Architecture
 
 ### Traditional Server-Side Signing
