@@ -35,12 +35,14 @@ Run the complete test:
 ```bash
 php test_complete_signing.php
 ```
+WARNING! Arhing Signer Webservice is required for client signing https://github.com/malamalca/arhint-signer
 
 ## Library Class
 
 The `ClientSideSigning` class is located at:
 - `src/helpers/ClientSideSigning.php`
 
+<<<<<<< HEAD
 It provides 4 public methods for two-phase PDF signing where the private key
 remains on the client side. CMS/PKCS#7 structure building is delegated to
 shared static methods on the `CMS` class (`src/helpers/CMS.php`).
@@ -48,3 +50,6 @@ shared static methods on the `CMS` class (`src/helpers/CMS.php`).
 ## Migration Note
 
 The command-line interface (`clientpdfsign.php`) has been deprecated. Use the library methods directly.
+=======
+It provides all functionality for two-phase PDF signing where the private key remains on the client side.
+>>>>>>> 1481fc8326cb52c5ec756a26d6d75da0467c56b9
