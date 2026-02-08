@@ -62,7 +62,7 @@ function debug_var(...$vars) {
 function p_debug_var(...$vars) {
     // If the debug level is less than 3, suppress debug messages
     if (_DEBUG_LEVEL < 3) return;
-
+    
     foreach ($vars as $var) {
         $e = var_dump_to_string($var);
         p_stderr($e, "Debug");

@@ -54,6 +54,7 @@ class PDFObject implements ArrayAccess {
     protected $_value = null;
     protected $_generation;
 
+    
     public function __construct($oid, $value = null, $generation = 0) {
         if ($generation !== 0)
             p_warning("Objects of non-zero generation are not fully checked... please double check your document and (if possible) please send examples via issues to https://github.com/dealfonso/sapp/issues/");

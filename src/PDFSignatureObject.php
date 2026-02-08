@@ -20,7 +20,7 @@
 */
 
 namespace ddn\sapp;
-    
+
 use ddn\sapp\PDFObject;
 use ddn\sapp\pdfvalue\PDFValue;
 use ddn\sapp\pdfvalue\PDFValueHexString;
@@ -49,7 +49,6 @@ class PDFSignatureObject extends PDFObject {
     protected $_certificate = null;
     protected $_signature_ltv_data = null;
     protected $_signature_tsa = null;
-
     /**
      * Sets the certificate to use to sign
      * @param cert the pem-formatted certificate and private to use to sign as

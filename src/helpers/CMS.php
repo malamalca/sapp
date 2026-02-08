@@ -359,12 +359,13 @@ class CMS {
   }
   
   /**
-   * Get the mapping of hash algorithm names to their ASN.1 OID hex encodings
-   * @return array hash algorithm name => hex OID
+   * Perform PKCS7 Signing
+   * @param string $binaryData
+   * @return string hex + padding 0
    * @public
    */
-  public static function getHashAlgorithmOids() {
-    return array(
+  public function pkcs7_sign($binaryData) {
+    $hexOidHashAlgos = array(
         'md2'=>'06082A864886F70D0202',
         'md4'=>'06082A864886F70D0204',
         'md5'=>'06082A864886F70D0205',
@@ -374,96 +375,6 @@ class CMS {
         'sha384'=>'0609608648016503040202',
         'sha512'=>'0609608648016503040203'
     );
-  }
-
-  /**
-   * Build authenticated attributes for PDF signature
-   * 
-   * @param string $messageDigest Hex hash of the document data
-   * @param string $signingTime Signing time in format "ymdHis", defaults to current time
-   * @param string $appendLTV Additional LTV attribute hex to append (optional)
-   * @return string Authenticated attributes as concatenated ASN.1 SEQUENCEs (hex)
-   * @public
-   */
-  public static function buildAuthenticatedAttributes($messageDigest, $signingTime = null, $appendLTV = '') {
-    if ($signingTime === null) {
-        $signingTime = date("ymdHis");
-    }
-    return asn1::seq(
-            '06092A864886F70D010903'. //OBJ_pkcs9_contentType 1.2.840.113549.1.9.3
-            asn1::set('06092A864886F70D010701')  //OBJ_pkcs7_data 1.2.840.113549.1.7.1
-        ).
-        asn1::seq( // signing time
-            '06092A864886F70D010905'. //OBJ_pkcs9_signingTime 1.2.840.113549.1.9.5
-            asn1::set(
-                asn1::utime($signingTime) //UTTC Time
-            )
-        ).
-        asn1::seq( // messageDigest
-            '06092A864886F70D010904'. //OBJ_pkcs9_messageDigest 1.2.840.113549.1.9.4
-            asn1::set(asn1::oct($messageDigest))
-        ).
-        $appendLTV;
-  }
-
-  /**
-   * Build the SignerInfo ASN.1 structure
-   * 
-   * @param string $issuerName Hex dump of issuer name
-   * @param string $serialNumber Serial number of the certificate
-   * @param string $hexOidHashAlgo Hex OID of the hash algorithm
-   * @param string $authenticatedAttributes Hex authenticated attributes (concatenated SEQUENCEs)
-   * @param string $hexEncryptedDigest Hex encrypted digest (signature value)
-   * @param string $unsignedAttrs Additional unsigned attributes hex to append (e.g. timestamp, optional)
-   * @return string ASN.1 SignerInfo SEQUENCE (hex)
-   * @public
-   */
-  public static function buildSignerInfo($issuerName, $serialNumber, $hexOidHashAlgo, $authenticatedAttributes, $hexEncryptedDigest, $unsignedAttrs = '') {
-    return asn1::seq(
-        asn1::int('1').
-        asn1::seq($issuerName . asn1::int($serialNumber)).
-        asn1::seq($hexOidHashAlgo.'0500').
-        asn1::expl(0, $authenticatedAttributes).
-        asn1::seq(
-            '06092A864886F70D010101'. //OBJ_rsaEncryption
-            '0500'
-        ).
-        asn1::oct($hexEncryptedDigest).
-        $unsignedAttrs
-    );
-  }
-
-  /**
-   * Build the complete PKCS#7/CMS SignedData ContentInfo structure
-   * 
-   * @param string $hexOidHashAlgo Hex OID of the hash algorithm
-   * @param string $hexCerts Concatenated hex-encoded certificates
-   * @param string $signerInfos Hex ASN.1 SignerInfo (from buildSignerInfo)
-   * @return string ASN.1 ContentInfo SEQUENCE (hex)
-   * @public
-   */
-  public static function buildPKCS7SignedData($hexOidHashAlgo, $hexCerts, $signerInfos) {
-    $pkcs7contentSignedData = asn1::seq(
-        asn1::int('1').
-        asn1::set(asn1::seq($hexOidHashAlgo.'0500')).
-        asn1::seq('06092A864886F70D010701'). //OBJ_pkcs7_data
-        asn1::expl(0, $hexCerts).
-        asn1::set($signerInfos)
-    );
-    return asn1::seq(
-        "06092A864886F70D010702". // Hexadecimal form of pkcs7-signedData
-        asn1::expl(0,$pkcs7contentSignedData)
-    );
-  }
-
-  /**
-   * Perform PKCS7 Signing
-   * @param string $binaryData
-   * @return string hex + padding 0
-   * @public
-   */
-  public function pkcs7_sign($binaryData) {
-    $hexOidHashAlgos = self::getHashAlgorithmOids();
     $hashAlgorithm = $this->signature_data['hashAlgorithm'];
     if(!array_key_exists($hashAlgorithm, $hexOidHashAlgos)) {
       p_error("not support hash algorithm!");
@@ -558,7 +469,21 @@ class CMS {
       }
     }
     $messageDigest = hash($hashAlgorithm, $binaryData);
-    $authenticatedAttributes = self::buildAuthenticatedAttributes($messageDigest, null, $appendLTV);
+    $authenticatedAttributes= asn1::seq(
+            '06092A864886F70D010903'. //OBJ_pkcs9_contentType 1.2.840.113549.1.9.3
+            asn1::set('06092A864886F70D010701')  //OBJ_pkcs7_data 1.2.840.113549.1.7.1
+        ).
+        asn1::seq( // signing time
+            '06092A864886F70D010905'. //OBJ_pkcs9_signingTime 1.2.840.113549.1.9.5
+            asn1::set(
+                asn1::utime(date("ymdHis")) //UTTC Time
+            )
+        ).
+        asn1::seq( // messageDigest
+            '06092A864886F70D010904'. //OBJ_pkcs9_messageDigest 1.2.840.113549.1.9.4
+            asn1::set(asn1::oct($messageDigest))
+        ).
+        $appendLTV;
     $tohash = asn1::set($authenticatedAttributes);
     $hash = hash($hashAlgorithm, hex2bin($tohash));
     $toencrypt =  asn1::seq(
@@ -587,9 +512,30 @@ class CMS {
     }
     $issuerName = $certParse['tbsCertificate']['issuer']['hexdump'];
     $serialNumber = $certParse['tbsCertificate']['serialNumber'];
-    $hexOidHashAlgo = $hexOidHashAlgos[$hashAlgorithm];
-    $signerinfos = self::buildSignerInfo($issuerName, $serialNumber, $hexOidHashAlgo, $authenticatedAttributes, $hexencryptedDigest, $timeStamp);
-    $hexCerts = implode('', $hexEmbedCerts);
-    return self::buildPKCS7SignedData($hexOidHashAlgo, $hexCerts, $signerinfos);
+    $signerinfos = asn1::seq(
+        asn1::int('1').
+        asn1::seq($issuerName . asn1::int($serialNumber)).
+        asn1::seq($hexOidHashAlgos[$hashAlgorithm].'0500').
+        asn1::expl(0, $authenticatedAttributes).
+        asn1::seq(
+            '06092A864886F70D010101'. //OBJ_rsaEncryption
+            '0500'
+        ).
+        asn1::oct($hexencryptedDigest).
+        $timeStamp
+    );
+    $certs = asn1::expl(0,implode('', $hexEmbedCerts));
+    $pkcs7contentSignedData = asn1::seq(
+        asn1::int('1').
+        asn1::set(asn1::seq($hexOidHashAlgos[$hashAlgorithm].'0500')).
+        asn1::seq('06092A864886F70D010701'). //OBJ_pkcs7_data
+        $certs.
+        asn1::set($signerinfos)
+    );
+    $pkcs7ContentInfo = asn1::seq(
+        "06092A864886F70D010702". // Hexadecimal form of pkcs7-signedData
+        asn1::expl(0,$pkcs7contentSignedData)
+    );
+    return $pkcs7ContentInfo;
   }
 }

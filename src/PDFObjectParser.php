@@ -217,7 +217,7 @@
             $n_parenthesis = 1;
             while ($this->_c !== false) {
                 $this->nextchar();
-                if (($this->_c === ')') && ($token[strlen($token) - 1] !== '\\')) {
+                if (($this->_c === ')') && (!strlen($token) || ($token[strlen($token) - 1] !== '\\'))) {
                     $n_parenthesis--;
                     if ($n_parenthesis == 0)
                         break;

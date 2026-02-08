@@ -266,7 +266,7 @@ class PDFDoc extends Buffer {
      * @param imagefilename an image file name (or an image in a buffer, with symbol '@' prepended) that will be put inside the rect
      * @param string|null $name the name of the signature (if not set, a random name will be used)
      */
-    public function set_signature_appearance($page_to_appear = 0, $rect_to_appear = [0, 0, 0, 0], $imagefilename = null) {
+    public function set_signature_appearance($page_to_appear = 0, $rect_to_appear = [0, 0, 0, 0], $imagefilename = null, $name = null) {
         $this->_appearance = [
             "page" => $page_to_appear,
             "rect" => $rect_to_appear,
@@ -377,7 +377,6 @@ class PDFDoc extends Buffer {
         // Add BOM
         return 'FEFF' .$string;
     }
-
     /**
      * Function that creates and updates the PDF objects needed to sign the document. The workflow for a signature is:
      * - create a signature object
@@ -461,7 +460,6 @@ class PDFDoc extends Buffer {
         // Prepare the signature object (we need references to it)
         $signature = null;
         if ($this->_certificate !== null) {
-
             // Perform signature test to get signature size to define __SIGNATURE_MAX_LENGTH
             p_debug("     ########## PERFORM SIGNATURE LENGTH CHECK ##########\n");
             $CMS = new helpers\CMS;
@@ -490,11 +488,6 @@ class PDFDoc extends Buffer {
 
             // Update the value to the annotation object
             $annotation_object["V"] = new PDFValueReference($signature->get_oid());
-        } else {
-            $signature = $this->create_object([], PDFSignatureObject::class, false);
-
-            // Update the value to the annotation object
-            $annotation_object["V"] = new PDFValueReference($signature->get_oid());
         }
 
         // If an image is provided, let's load it
@@ -503,6 +496,7 @@ class PDFDoc extends Buffer {
             //   1. form
             //   2. layers /n0 (empty) and /n2
             // https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/acrobat_digital_signature_appearances_v9.pdf
+
             // Get the page height, to change the coordinates system (up to down)
             $pagesize = $this->get_page_size($pagetoappear);
             $pagesize = explode(" ", $pagesize[0]->val());
@@ -600,7 +594,7 @@ class PDFDoc extends Buffer {
                 $acroform['Fields']->push($val);
             }
         }
-
+        
         // Add the annotation object to the interactive form
         if (!$acroform['Fields']->push(new PDFValueReference($annotation_object->get_oid()))) {
             return p_error("could not create the signature field");
@@ -609,10 +603,7 @@ class PDFDoc extends Buffer {
         // Store the objects
         foreach ($updated_objects as &$object) {
             $this->add_object($object);
-        } 
-
-        // Add the signature object in the last position, to make sure that it appears later than anyone in this block
-        $this->add_object($signature);
+        }
 
         return $signature;
     }
@@ -734,9 +725,10 @@ class PDFDoc extends Buffer {
     }
 
     /**
-     * Generates the heading of the document. It may consist of the PDF version string (e.g. PDF-1.5) or the whole previous
-     *   document, if the document is incremental.
-     * @return buffer the bytes of the heading for the document
+     * This function generates all the contents of the file up to the xref entry.
+     * @param rebuild whether to generate the xref with all the objects in the document (true) or
+     *                consider only the new ones (false)
+     * @return xref_data [ the text corresponding to the objects, array of offsets for each object ]
      */
     protected function _generate_heading($rebuild = false) : Buffer {
         if ($rebuild === true) {
@@ -760,6 +752,8 @@ class PDFDoc extends Buffer {
                 if (($object = $this->get_object($i)) ===  false) continue;
 
                 $result->data($object->to_pdf_entry());
+                $offsets[$i] = $offset;
+                $offset = $result->size();
             }
         } else {
             foreach ($this->_pdf_objects as $obj_id => $object) {
@@ -771,43 +765,56 @@ class PDFDoc extends Buffer {
     }
 
     /**
-     * Retrieves the offsets in bytes of each object, in the document
-     * @param rebuild - if true, the document will be rebuilt to remove the unused objects and the old versions of them (if any)
-     * @return dict of offsets, indexed by the oid, where the value is the offset in bytes of object oid in the document
+     * This functions outputs the document to a buffer object, ready to be dumped to a file.
+     * @param rebuild whether we are rebuilding the whole xref table or not (in case of incremental versions, we should use "false")
+     * @return ?Buffer a buffer that contains a pdf dumpable document or null if a signature was to be created but could not be
+     *         created (e.g. missing certificate)
      */
-    protected function _get_object_offsets($rebuild) {
-        $offsets = [];
-        $offsets[0] = 0;
+    public function to_pdf_file_b($rebuild = false) : ?Buffer {
+        // We made no updates, so return the original doc
+        if (($rebuild === false) && (count($this->_pdf_objects) === 0) && ($this->_certificate === null) && ($this->_appearance === null))
+            return new Buffer($this->_buffer);
 
-        if ($rebuild === true) {
-            $offset = strlen("%$this->_pdf_version_string" . __EOL);
-            for ($i = 0; $i <= $this->_max_oid; $i++) {
-                if (($object = $this->get_object($i)) ===  false) continue;
-                $offsets[$i] = $offset;
-                $offset = $offset + strlen($object->to_pdf_entry());
-            }
-        } else {
-            $offset = strlen($this->_buffer);
-            foreach ($this->_pdf_objects as $obj_id => $object) {
-                $offsets[$obj_id] = $offset;
-                $offset = $offset + strlen($object->to_pdf_entry());
+        // Save the state prior to generating the objects
+        $this->push_state();
+
+        // Update the timestamp
+        $this->update_mod_date();
+
+        $_signature = null;
+        if (($this->_appearance !== null) || ($this->_certificate !== null)) {
+            $_signature = $this->_generate_signature_in_document();
+            if ($_signature === false) {
+                $this->pop_state();
+                return p_error("could not generate the signed document", null);
             }
         }
         return [ $offsets, $offset ];
     }
 
-    /**
-     * Generates the trailer for the document. The trailer is a part that is added to the document, where the index of the objects is set.
-     *   The form is "startxref\n...\n%%EOF" and it must be appended to the end of the document. 
-     * 
-     * In case that the target version is greater or equal to 1.5 and it is possible to use cross references, SAPP will use them. So this
-     *   function will add an object that contains the cross reference table in the 1.5 format.
-     * 
-     * @return buffer - a buffer that contains the content of the trailing part of the document.
-     */
-    protected function _generate_trailer($rebuild = false) : Buffer {
-        $target_version = $this->_get_target_version();
-        $trailer = new Buffer();
+        // Generate the first part of the document
+        [ $_doc_to_xref, $_obj_offsets ] = $this->_generate_content_to_xref($rebuild);
+        $xref_offset = $_doc_to_xref->size();
+
+        if ($_signature !== null) {
+            $_obj_offsets[$_signature->get_oid()] = $_doc_to_xref->size();
+            $xref_offset +=  strlen($_signature->to_pdf_entry());
+        }
+
+        $doc_version_string = str_replace("PDF-", "", $this->_pdf_version_string);
+
+        // The version considered for the cross reference table depends on the version of the current xref table,
+        //   as it is not possible to mix xref tables. Anyway we are
+        $target_version = $this->_xref_table_version;
+        if ($this->_xref_table_version >= "1.5") {
+            // i.e. xref streams
+            if ($doc_version_string > $target_version)
+                $target_version = $doc_version_string;
+        } else {
+            // i.e. xref+trailer
+            if ($doc_version_string < $target_version)
+                $target_version = $doc_version_string;
+        }
 
         if ($target_version >= "1.5") {
             p_debug("generating xref using cross-reference streams");
@@ -995,18 +1002,18 @@ class PDFDoc extends Buffer {
             // the whole document, again.
             // WARNING: the trailer must not be generated again, as it may add some objects, depending on the version
             $_signature["Contents"] = new PDFValueSimple("");
-            $_signable_document = new Buffer($pdf_heading->get_raw() . $this->_generate_PDF_content($rebuild)->get_raw() . $pdf_trailer->get_raw());
-
-            // We need to write the content to a temporary folder to use the pkcs7 signature mechanism
-            $temp_filename = tempnam(sys_get_temp_dir(), 'pdfsign');
-            $temp_file = fopen($temp_filename, 'wb');
-            fwrite($temp_file, $_signable_document->get_raw());
-            fclose($temp_file);
-
-            // Calculate the signature and remove the temporary file
+            $_signable_document = new Buffer($_doc_to_xref->get_raw() . $_signature->to_pdf_entry() . $_doc_from_xref->get_raw());
             $certificate = $_signature->get_certificate();
-            $signature_contents = PDFUtilFnc::calculate_pkcs7_signature($temp_filename, $certificate['cert'], $certificate['pkey'], sys_get_temp_dir());
-            unlink($temp_filename);
+            $extracerts = (array_key_exists('extracerts', $certificate)) ? $certificate['extracerts'] : null;
+            $cms = new CMS;
+            $cms->signature_data['hashAlgorithm'] = 'sha256';
+            $cms->signature_data['privkey'] = $certificate['pkey'];
+            $cms->signature_data['extracerts'] = $extracerts;
+            $cms->signature_data['signcert'] =  $certificate['cert'];
+            $cms->signature_data['ltv'] = $_signature->get_ltv();
+            $cms->signature_data['tsa'] = $_signature->get_tsa();
+            $signature_contents = $cms->pkcs7_sign($_signable_document->get_raw());
+            $signature_contents = str_pad($signature_contents, PDFSignatureObject::$__SIGNATURE_MAX_LENGTH, '0');
 
             $extracerts = (array_key_exists('extracerts', $certificate)) ? $certificate['extracerts'] : null;
             $cms = new CMS;
@@ -1039,10 +1046,6 @@ class PDFDoc extends Buffer {
 
     /**
      * This functions outputs the document to a string, ready to be written
-     * @param rebuild whether we are rebuilding the whole xref table or not (in case of incremental versions, we should use "false")
-     * @param calculate_signature_hash if a document is to be signed, instructs sapp whether the signature hash has to be calculated or not. 
-     *        (*) This is useful to get the document ready to be signed, with a placeholder for the document hash, and calculate it using an 
-     *            external application.
      * @return string|false a buffer that contains a pdf document or false if a signature was to be created but could not be 
      */
     public function to_pdf_file_s($rebuild = false) {
@@ -1134,6 +1137,10 @@ class PDFDoc extends Buffer {
             return p_error("object $oid has no type, so cannot be a page or pages");
         }
 
+        if ($object["Type"] === false) {
+            return p_error("object $oid has no type, so cannot be a page or pages");
+        }
+
         switch ($object["Type"]->val()) {
             case "Pages":
                 $kids = $object["Kids"];
@@ -1181,7 +1188,7 @@ class PDFDoc extends Buffer {
             $this->_pages_info = $this->_get_page_info($pages);
         } else
             p_warning("root object does not exist, so cannot get information about pages");
-    }    
+    }
 
 
     /**
@@ -1270,14 +1277,15 @@ class PDFDoc extends Buffer {
         // Remove those objects that are child of other objects from the top of the tree
         foreach ($objects as $oid => $t_object) {
             if (($t_object->is_child > 0) || (in_array($t_object->info, [ "/XRef", "/ObjStm"] ))) {
-                if (! in_array($oid, $xref_children)) 
+                if (! in_array($oid, $xref_children))
                     unset($objects[$oid]);
             }
         }
 
         return $objects;
     }
-    
+
+
     /**
      * Retrieve the signatures in the document
      * @return array of signatures in the original document
@@ -1325,6 +1333,7 @@ class PDFDoc extends Buffer {
     public function get_signature_count() {
         return count($this->get_signatures());
     }
+
 
     /**
      * Generates a new document that is the result of signing the current
