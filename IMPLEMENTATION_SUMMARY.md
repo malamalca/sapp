@@ -59,7 +59,7 @@
 
 ### 5. Updated Test Script
 
-- **test_complete_signing.php** - Uses library directly (no CLI calls)
+- **phpsignclient.php** - Uses library directly (no CLI calls)
   - Step 2: Uses `ClientSideSigning::prepareFileForSigning()`
   - Step 5: Uses `ClientSideSigning::signFile()`
   - Faster, more reliable, cross-platform
@@ -75,7 +75,7 @@ sapp/
 │       ├── asn1.php               [USED] - ASN.1 encoding
 │       ├── x509.php               [USED] - Certificate handling
 │       └── LoadHelpers.php        [AUTO-LOADS] - All helpers
-├── test_complete_signing.php      [UPDATED] - End-to-end test (uses library)
+├── phpsignclient.php              [RENAMED] - End-to-end client signing test
 └── CLIENT_SIDE_SIGNING_LIBRARY.md [NEW] - Documentation
 ```
 
@@ -102,7 +102,7 @@ file_put_contents('signed.pdf', $signed_pdf);
 
 All tests pass:
 ```bash
-php test_complete_signing.php
+php phpsignclient.php
 # ✅ COMPLETE PDF SIGNING TEST SUCCESSFUL!
 ```
 

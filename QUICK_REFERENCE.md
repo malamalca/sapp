@@ -129,4 +129,4 @@ if ($signed_pdf === false) {
 
 - Full documentation: `CLIENT_SIDE_SIGNING_LIBRARY.md`
 - CMS shared methods: `src/helpers/CMS.php`
-- End-to-end test: `test_complete_signing.php`
+- End-to-end test: `phpsignclient.php`

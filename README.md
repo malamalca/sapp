@@ -12,6 +12,7 @@ The way of working with SAPP can be seen in the function to sign the document: i
 1. Works using incremental versions
 1. Works for rebuilding documents to flatten versions (older version are dropped)
 1. Signature of documents using the Acrobat workflow (and obtain the green checkmark).
+1. Client-side signing support (private key stays on client/browser/smartcard/HSM).
 1. Others.
 
 ## 1. Why SAPP
@@ -65,6 +66,9 @@ In the root folder of the source code you can find two simple examples:
 1. `pdfsigni.php`: this example gets a PDF file and digitally signs it using a pkcs12 (pfx) certificate, and adds an image that makes visible the signature in the document.
 1. `pdfsignx.php`: alternate example that gets a PDF file and digitally signs it using a pkcs12 (pfx) certificate, and adds an image that makes visible the signature in the document.
 1. `pdfcompare.php`: this example compares two PDF files and checks the differences between them (object by object, field by field).
+1. `pdfpreparesign.php`: prepares a PDF file with a signature placeholder for client-side signing workflows.
+1. `pdfpreparesigni.php`: same as above but also adds a visible signature image to the document.
+1. `phpsignclient.php`: end-to-end client-side signing test that demonstrates the full workflow with an external signing service.
 
 ### 3.1. Rebuild PDF files with `pdfrebuild.php`
 
@@ -295,14 +299,70 @@ foreach ($obj->get_object_iterator() as $oid => $object) {
 echo $obj->to_pdf_file_s(true);
 ```
 
-## 4. Limitations
+## 4. Client-Side Signing
+
+SAPP supports client-side signing workflows where the private key remains on the client (e.g. in a browser, smartcard, or HSM). The signing process is split into phases:
+
+1. **Server** prepares the PDF with a signature placeholder and calculates the hash
+2. **Client** signs the hash with the private key
+3. **Server** embeds the signature back into the PDF
+
+### 4.1. Prepare a PDF for client-side signing
+
+Use `pdfpreparesign.php` to create a PDF with a signature placeholder:
+
+```bash
+$ php pdfpreparesign.php examples/testdoc.pdf > prepared.pdf
+```
+
+Or with a visible signature image using `pdfpreparesigni.php`:
+
+```bash
+$ php pdfpreparesigni.php examples/testdoc.pdf signature.png > prepared.pdf
+```
+
+### 4.2. Programmatic client-side signing
+
+```php
+use ddn\sapp\helpers\ClientSideSigning;
+
+// Phase 1: Get hash for client to sign
+$hash_data = ClientSideSigning::prepareFileForSigning('prepared.pdf');
+// Send $hash_data['hashToSign'] to client
+
+// Phase 2: Client signs hash (browser/smartcard/HSM)
+// Client returns: $signature_hex + $certificate_pem
+
+// Phase 3: Embed client's signature
+$signed_pdf = ClientSideSigning::signFile(
+    'prepared.pdf',
+    $signature_hex,
+    $certificate_pem,
+    $hash_data['authenticatedAttributes']
+);
+file_put_contents('signed.pdf', $signed_pdf);
+```
+
+### 4.3. End-to-end test
+
+The `phpsignclient.php` script demonstrates the complete workflow with an external signing service:
+
+```bash
+$ php phpsignclient.php
+```
+
+> **Note:** Requires a signing service running on `localhost:8082`. See [arhint-signer](https://github.com/malamalca/arhint-signer).
+
+For detailed documentation, see [CLIENT_SIDE_SIGNING_LIBRARY.md](CLIENT_SIDE_SIGNING_LIBRARY.md) and [QUICK_REFERENCE.md](QUICK_REFERENCE.md).
+
+## 5. Limitations
 
 At this time, the main limitations are:
 - Basic support for **non-zero generation** pdf objects: they are uncommon, but according to the definition of the PDF structure, they are possible. If you find one non-zero generation object please send me the document and I'll try to support it.
 - Not dealing with **encrypted documents**.
 - Other limitations, for sure :)
 
-## 5. Future work
+## 6. Future work
 
 My idea is to provide support for other cool features:
 
@@ -311,7 +371,7 @@ My idea is to provide support for other cool features:
 1. Document encryption (http://www.fpdf.org/en/script/script37.php)
 1. Try to provide support to write some text
 
-## 6. Attributions
+## 7. Attributions
 
 1. The mechanism for calculating the signature hash is heavily inspired in tcpdf.
 1. Reading jpg and png files has been taken from fpdf.

@@ -1,17 +1,18 @@
 #!/usr/bin/env php
 <?php
 /*
-    Complete End-to-End Test of Client-Side PDF Signing
+    Client-Side PDF Signing - End-to-End Example
     
-    This script tests the complete workflow using the ClientSideSigning library:
+    This script demonstrates the complete client-side signing workflow
+    using the ClientSideSigning library:
     1. Prepare PDF with signature placeholder
     2. Get hash from prepared PDF (using library)
     3. Request certificate list from signing service (localhost:8082)
     4. Sign hash using third certificate (ARHIM)
     5. Embed signature into PDF (using library)
     
-    The test now uses ClientSideSigning library directly instead of
-    calling clientpdfsign.php via command line.
+    Requires: Arhint Signer web service running on localhost:8082
+    See: https://github.com/malamalca/arhint-signer
 */
 
 require_once('vendor/autoload.php');
